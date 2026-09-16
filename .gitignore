@@ -8,5 +8,8 @@
 
 # Generated IDE and Unity user files
 .vs/
+.vscode/
 *.csproj.user
 *.suo
+*.csproj
+*.slnx
