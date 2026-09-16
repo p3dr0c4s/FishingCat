@@ -33,6 +33,17 @@ public class FishingCatController : MonoBehaviour
     [SerializeField] private float wallClimbStaminaRecovery = 1.5f;
     [SerializeField] private float wallAngleLimit = 55f;
 
+    [Header("Fishing")]
+    [SerializeField] private Transform rodTip;
+    [SerializeField] private LayerMask fishingLayer;
+    [SerializeField] private float fishingRange = 25f;
+    [SerializeField] private float biteDelay = 1.5f;
+    [SerializeField] private float fishingLineLength = 25f;
+    [SerializeField] private float reelSpeed = 4f;
+    [SerializeField] private float maxLineTension = 0.92f;
+    [SerializeField] private KeyCode castFishingKey = KeyCode.F;
+    [SerializeField] private KeyCode reelFishingKey = KeyCode.R;
+
     private Rigidbody rb;
     private bool isGrounded;
     private bool isGrappling;
@@ -43,8 +54,20 @@ public class FishingCatController : MonoBehaviour
     private float cameraPitch = 15f;
     private float nextGrappleTime;
     private float currentWallClimbStamina;
+    private FishingFish hookedFish;
+    private LineRenderer fishingLineVisual;
+    private FishingState fishingState;
+    private float biteTimer;
+    private float fishingTension;
 
     private const float RAYCAST_BUFFER = 0.1f;
+
+    private enum FishingState
+    {
+        Idle,
+        WaitingForBite,
+        Hooked
+    }
 
     void Start()
     {
@@ -61,6 +84,7 @@ public class FishingCatController : MonoBehaviour
 
         currentWallClimbStamina = wallClimbStamina;
         InitializeRopeVisual();
+        InitializeFishingLineVisual();
     }
 
     void Update()
@@ -68,8 +92,10 @@ public class FishingCatController : MonoBehaviour
         CheckGround();
         HandleJump();
         HandleGrappleInput();
+        HandleFishingInput();
         HandleCameraInput();
         UpdateRopeVisual();
+        UpdateFishingLineVisual();
     }
 
     void FixedUpdate()
@@ -83,6 +109,8 @@ public class FishingCatController : MonoBehaviour
         {
             HandleGrappleMovement();
         }
+
+        SimulateFishing();
     }
 
     void LateUpdate()
@@ -128,6 +156,152 @@ public class FishingCatController : MonoBehaviour
             groundCheckDistance,
             groundLayer
         );
+    }
+
+    #endregion
+
+    #region Fishing
+
+    void HandleFishingInput()
+    {
+        if (Input.GetKeyDown(castFishingKey) && fishingState == FishingState.Idle)
+        {
+            TryCastFishingLine();
+        }
+
+        if (Input.GetKeyDown(reelFishingKey) && fishingState == FishingState.WaitingForBite)
+        {
+            ReleaseFishingLine();
+        }
+
+        if (Input.GetKeyDown(KeyCode.G) && fishingState != FishingState.Idle)
+        {
+            ReleaseFishingLine();
+        }
+    }
+
+    void TryCastFishingLine()
+    {
+        Camera fishingCamera = playerCamera != null ? playerCamera : Camera.main;
+        if (fishingCamera == null)
+        {
+            return;
+        }
+
+        Vector3 origin = rodTip != null ? rodTip.position : fishingCamera.transform.position;
+        Ray ray = new Ray(fishingCamera.transform.position, fishingCamera.transform.forward);
+        if (Physics.Raycast(ray, out RaycastHit hit, fishingRange, fishingLayer, QueryTriggerInteraction.Ignore))
+        {
+            FishingFish fish = hit.collider.GetComponentInParent<FishingFish>();
+            if (fish != null)
+            {
+                hookedFish = fish;
+                hookedFish.ResetFight();
+                fishingState = FishingState.WaitingForBite;
+                biteTimer = biteDelay;
+                grapplePoint = hit.point;
+                return;
+            }
+        }
+
+        fishingState = FishingState.WaitingForBite;
+        biteTimer = biteDelay;
+        grapplePoint = origin + fishingCamera.transform.forward * fishingRange;
+    }
+
+    void SimulateFishing()
+    {
+        if (fishingState == FishingState.Idle)
+        {
+            fishingTension = 0f;
+            return;
+        }
+
+        if (fishingState == FishingState.WaitingForBite)
+        {
+            biteTimer -= Time.deltaTime;
+            if (hookedFish != null && biteTimer <= 0f)
+            {
+                fishingState = FishingState.Hooked;
+            }
+            return;
+        }
+
+        if (hookedFish == null)
+        {
+            ReleaseFishingLine();
+            return;
+        }
+
+        bool isReeling = Input.GetKey(reelFishingKey);
+        float lineLength = Mathf.Max(0.1f, fishingLineLength);
+        fishingTension = hookedFish.SimulateFight(
+            GetFishingOrigin(),
+            isReeling,
+            reelSpeed,
+            lineLength,
+            Time.deltaTime);
+
+        if (fishingTension >= maxLineTension)
+        {
+            ReleaseFishingLine();
+            return;
+        }
+
+        if (isReeling && hookedFish.IsTired &&
+            Vector3.Distance(GetFishingOrigin(), hookedFish.transform.position) <= hookedFish.CatchDistance)
+        {
+            CatchFish();
+        }
+    }
+
+    Vector3 GetFishingOrigin()
+    {
+        return rodTip != null ? rodTip.position : transform.position;
+    }
+
+    void CatchFish()
+    {
+        fishingState = FishingState.Idle;
+        FishingFish caughtFish = hookedFish;
+        hookedFish = null;
+        fishingTension = 0f;
+        Destroy(caughtFish.gameObject);
+    }
+
+    void ReleaseFishingLine()
+    {
+        fishingState = FishingState.Idle;
+        hookedFish = null;
+        fishingTension = 0f;
+    }
+
+    void InitializeFishingLineVisual()
+    {
+        fishingLineVisual = gameObject.AddComponent<LineRenderer>();
+        fishingLineVisual.material = new Material(Shader.Find("Standard"));
+        fishingLineVisual.startWidth = 0.035f;
+        fishingLineVisual.endWidth = 0.02f;
+        fishingLineVisual.positionCount = 2;
+        fishingLineVisual.enabled = false;
+    }
+
+    void UpdateFishingLineVisual()
+    {
+        if (fishingLineVisual == null)
+        {
+            return;
+        }
+
+        if (fishingState == FishingState.Idle)
+        {
+            fishingLineVisual.enabled = false;
+            return;
+        }
+
+        fishingLineVisual.enabled = true;
+        fishingLineVisual.SetPosition(0, GetFishingOrigin());
+        fishingLineVisual.SetPosition(1, hookedFish != null ? hookedFish.transform.position : grapplePoint);
     }
 
     #endregion
@@ -303,4 +477,80 @@ public class FishingCatController : MonoBehaviour
     }
 
     #endregion
+}
+
+public class FishingFish : MonoBehaviour
+{
+    [Header("Fish Behavior")]
+    [SerializeField] private float stamina = 100f;
+    [SerializeField] private float escapeForce = 5f;
+    [SerializeField] private float escapeChangeTime = 1.5f;
+    [SerializeField] private float staminaDrainWhileReeling = 14f;
+    [SerializeField] private float staminaRecovery = 5f;
+    [SerializeField] private float catchDistance = 1.4f;
+
+    private float currentStamina;
+    private float escapeTimer;
+    private Vector3 escapeDirection;
+
+    public bool IsTired => currentStamina <= 0.01f;
+    public float CatchDistance => catchDistance;
+
+    void Awake()
+    {
+        currentStamina = stamina;
+        PickEscapeDirection(Vector3.forward);
+    }
+
+    public void ResetFight()
+    {
+        currentStamina = stamina;
+        escapeTimer = 0f;
+    }
+
+    public float SimulateFight(Vector3 rodPosition, bool isReeling, float reelSpeed, float maxLineLength, float deltaTime)
+    {
+        Vector3 awayFromRod = transform.position - rodPosition;
+        awayFromRod.y = 0f;
+        if (awayFromRod.sqrMagnitude < 0.01f)
+        {
+            awayFromRod = Vector3.forward;
+        }
+
+        escapeTimer -= deltaTime;
+        if (escapeTimer <= 0f)
+        {
+            PickEscapeDirection(awayFromRod.normalized);
+        }
+
+        if (isReeling)
+        {
+            currentStamina = Mathf.Max(0f, currentStamina - staminaDrainWhileReeling * deltaTime);
+        }
+        else
+        {
+            currentStamina = Mathf.Min(stamina, currentStamina + staminaRecovery * deltaTime);
+        }
+
+        float strength = IsTired ? 0.15f : Mathf.Lerp(0.25f, 1f, stamina <= 0f ? 0f : currentStamina / stamina);
+        Vector3 movement = escapeDirection * escapeForce * strength;
+
+        if (isReeling && Vector3.Distance(transform.position, rodPosition) > catchDistance)
+        {
+            movement += (rodPosition - transform.position).normalized * reelSpeed;
+        }
+
+        transform.position += movement * deltaTime;
+        float distance = Vector3.Distance(transform.position, rodPosition);
+        float distanceTension = Mathf.Clamp01(distance / Mathf.Max(0.1f, maxLineLength));
+        float escapeTension = strength * 0.35f;
+        return Mathf.Clamp01(distanceTension + escapeTension);
+    }
+
+    private void PickEscapeDirection(Vector3 awayFromRod)
+    {
+        Vector3 sideways = Vector3.Cross(Vector3.up, awayFromRod).normalized;
+        escapeDirection = (awayFromRod + sideways * Random.Range(-0.7f, 0.7f)).normalized;
+        escapeTimer = escapeChangeTime * Random.Range(0.7f, 1.3f);
+    }
 }
