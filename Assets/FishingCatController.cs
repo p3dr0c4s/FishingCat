@@ -226,8 +226,9 @@ public class FishingCatController : MonoBehaviour
     {
         Vector3 directionToGrapple = (grapplePoint - transform.position).normalized;
         float distanceToGrapple = Vector3.Distance(transform.position, grapplePoint);
+        float effectiveRopeLength = Mathf.Max(0.1f, ropeLength);
 
-        float speedMultiplier = Mathf.Clamp01(distanceToGrapple / ropeLength);
+        float speedMultiplier = Mathf.Clamp01(distanceToGrapple / effectiveRopeLength);
         Vector3 grappleVelocity = directionToGrapple * grappleSpeed * speedMultiplier;
 
         if (isWallClimbing)
@@ -243,13 +244,13 @@ public class FishingCatController : MonoBehaviour
 
             if (currentWallClimbStamina <= 0f)
             {
-                isWallClimbing = false;
+                ReleaseGrapple();
             }
         }
 
         rb.linearVelocity = grappleVelocity;
 
-        if (distanceToGrapple < ropeLength)
+        if (!isWallClimbing && distanceToGrapple < effectiveRopeLength)
         {
             ReleaseGrapple();
         }

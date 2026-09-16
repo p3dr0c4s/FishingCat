@@ -1,0 +1,12 @@
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Generated IDE and Unity user files
+.vs/
+*.csproj.user
+*.suo
