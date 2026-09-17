@@ -4,7 +4,7 @@ Projeto Unity 6 com movimento em terceira pessoa e grappling.
 
 ## Controles
 
-| Acao | Tecla |
+| Ação | Tecla |
 | --- | --- |
 | Mover | `WASD` ou setas |
 | Pular | `Space` |
